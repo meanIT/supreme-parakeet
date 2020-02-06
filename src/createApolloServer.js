@@ -27,13 +27,16 @@ function createApolloServer(schema) {
         const returnType = field.type.kind;
 
         if (returnType === 'NamedType' && field.type.name.value === modelName) {
-          resolvers.Query[resolverName] = (obj, args) => {
-            return mongoose.model(modelName).findOne(decorateQueryFilter(args));
+          resolvers.Query[resolverName] = (obj, args, ctx) => {
+            const Model = mongoose.model(modelName);
+            const filter = { ...decorateQueryFilter(args), ...Model.extraFilterParams(ctx) };
+            return Model.findOne(decorateQueryFilter(args));
           };
         } else if (returnType === 'ListType') {
-          resolvers.Query[resolverName] = (obj, args) => {
-            const filter = decorateQueryFilter(args);
-            return mongoose.model(modelName).find(filter);
+          resolvers.Query[resolverName] = (obj, args, ctx) => {
+            const Model = mongoose.model(modelName);
+            const filter = { ...decorateQueryFilter(args), ...Model.extraFilterParams(ctx) };
+            return Model.find(filter);
           };
         }
       }
@@ -46,13 +49,24 @@ function createApolloServer(schema) {
         const opName = resolverName.slice(resolverName.indexOf('_') + 1);   
 
         if (opName === 'update') {
-          resolvers.Mutation[resolverName] = (obj, args) => {
-            return mongoose.model(modelName).findByIdAndUpdate(args._id,
-              { $set: args.update }, { new: true });
+          resolvers.Mutation[resolverName] = (obj, args, ctx) => {
+            const [_id, update] = Object.keys(args);
+            const Model = mongoose.model(modelName);
+            const filter = { _id: args[_id], ...Model.extraFilterParams(ctx) };
+            return Model.findOneAndUpdate(filter,
+              { $set: args[update] }, { new: true });
           };
         } else if (opName === 'create') {
           resolvers.Mutation[resolverName] = (obj, args) => {
-            return mongoose.model(modelName).create(args.data);
+            const [data] = Object.keys(args);
+            return mongoose.model(modelName).create(args[data]);
+          };
+        } else if (opName === 'delete') {
+          resolvers.Mutation[resolverName] = (obj, args) => {
+            const [firstKey] = Object.keys(args);
+            const Model = mongoose.model(modelName);
+            const filter = { _id: args[firstKey], ...Model.extraFilterParams(ctx) };
+            return mongoose.model(modelName).deleteOne(filter);
           };
         }
       }
@@ -63,6 +77,8 @@ function createApolloServer(schema) {
     const schema = mongoose.Schema({});
 
     resolvers[name] = {};
+
+    schema.statics.extraFilterParams = () => ({});
 
     for (const field of def.fields) {
       const prop = field.name.value;
@@ -89,6 +105,10 @@ function createApolloServer(schema) {
       if (prop === '_id') {
         schema.path('_id').default(() => new mongoose.Types.ObjectId());
       }
+
+      if (prop === 'userId') {
+        schema.statics.extraFilterParams = ctx => ({ userId: ctx.user == null ? null : ctx.user._id })
+      }
       resolvers[name][prop] = doc => doc == null ? null : doc.get(prop);
     }
 
@@ -99,7 +119,14 @@ function createApolloServer(schema) {
 
   const server = new ApolloServer({
     typeDefs,
-    resolvers
+    resolvers,
+    context: async (data) => {
+      const ret = {};
+      ret.user = await mongoose.model('User').
+        findOne({ _id: data.req.headers.authorization }).
+        catch(() => null);
+      return ret;
+    }
   });
   return server;
 }

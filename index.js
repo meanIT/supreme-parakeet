@@ -14,23 +14,27 @@ input FilterFloat {
 }
 
 type Query {
-  Person_findById(_id: ID!): Person
-  Person_findByName(name: String!): [Person]
-  Person_findByAge(age: FilterFloat!): [Person]
+  Todo_find(description: FilterString): [Todo]
 }
-type Person {
+
+type User {
   _id: ID!
   name: String!
-  age: Float!
 }
-input PersonInput {
-  name: String
-  age: Float
+
+type Todo {
+  _id: ID!
+  userId: ID!
+  done: Boolean!
+  description: String!
+}
+input TodoUpdate {
+  done: Boolean
+  description: Boolean
 }
 
 type Mutation {
-  Person_create(data: PersonInput!): Person
-  Person_update(_id: ID!, update: PersonInput!): Person
+  Todo_update(_id: ID!, update: TodoUpdate!): Todo
 }
 `;
 
@@ -46,8 +50,15 @@ async function run() {
 
   const server = createApolloServer(schema);
 
-  await mongoose.model('Person').create({ name: 'Val', age: 31 });
-  console.log(await mongoose.model('Person').findOne({}));
+  const v = await mongoose.model('User').create({ name: 'Val' });
+  const t = await mongoose.model('User').create({ name: 'test' });
+
+  await mongoose.model('Todo').create([
+    { userId: v._id, done: false, description: 'write blog post' },
+    { userId: t._id, done: true, description: 'schedule tweet' }
+  ]);
+
+  console.log(v._id);
 
   const { url } = await server.listen();
 
