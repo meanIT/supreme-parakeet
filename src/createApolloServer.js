@@ -1,6 +1,6 @@
 'use strict';
 
-const { ApolloServer, gql } = require('apollo-server');
+const { ApolloServer, gql, SchemaDirectiveVisitor } = require('apollo-server');
 const mongoose = require('mongoose');
 const { parse } = require('graphql');
 
@@ -106,14 +106,16 @@ function createApolloServer(schema) {
         schema.path('_id').default(() => new mongoose.Types.ObjectId());
       }
 
-      if (prop === 'userId') {
-        schema.statics.extraFilterParams = ctx => ({ userId: ctx.user == null ? null : ctx.user._id })
-      }
       resolvers[name][prop] = doc => doc == null ? null : doc.get(prop);
     }
 
     mongoose.model(name, schema);
   }
+
+  mongoose.model('AccessToken', mongoose.Schema({
+    _id: String,
+    userId: mongoose.ObjectId
+  }));
 
   const typeDefs = gql(schema);
 
@@ -122,10 +124,22 @@ function createApolloServer(schema) {
     resolvers,
     context: async (data) => {
       const ret = {};
-      ret.user = await mongoose.model('User').
+      const token = await mongoose.model('AccessToken').
         findOne({ _id: data.req.headers.authorization }).
         catch(() => null);
+      
+      if (token != null) {
+        const user = await mongoose.model('User').findOne({ _id: token.userId });
+        ret.user = user;
+      }
       return ret;
+    },
+    schemaDirectives: {
+      auth: class ModelVisitor extends SchemaDirectiveVisitor {
+        visitObject(type) {
+          mongoose.model(type).extraFilterParams = ctx => ({ userId: ctx.user == null ? null : ctx.user._id });
+        }
+      }
     }
   });
   return server;

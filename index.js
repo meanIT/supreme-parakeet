@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 
 // The GraphQL schema
 const schema = `
+directive @auth on OBJECT
+
 input FilterString {
   eq: String
 }
@@ -22,7 +24,7 @@ type User {
   name: String!
 }
 
-type Todo {
+type Todo @auth {
   _id: ID!
   userId: ID!
   done: Boolean!
